@@ -356,6 +356,22 @@ def strategy_ma_alignment(df, divs, ma1=20, ma2=60, ma3=120):
         return None
     return _run(prices, dd, sig)
 
+def strategy_ma_breakout(df, divs, buy_ma=144, sell_ma=56):
+    """均线突破策略 (收盘价突破X均线买入，跌破Y均线卖出)"""
+    prices = df["Close"].dropna()
+    dd = _divs_dict(divs)
+    ma_buy = prices.rolling(buy_ma).mean()
+    ma_sell = prices.rolling(sell_ma).mean()
+    warmup = max(buy_ma, sell_ma)
+    def sig(i):
+        if i < warmup: return None
+        # 收盘价突破买入均线
+        if prices.iloc[i] > ma_buy.iloc[i] and prices.iloc[i-1] <= ma_buy.iloc[i-1]: return "BUY"
+        # 收盘价跌破卖出均线
+        if prices.iloc[i] < ma_sell.iloc[i] and prices.iloc[i-1] >= ma_sell.iloc[i-1]: return "SELL"
+        return None
+    return _run(prices, dd, sig)
+
 def strategy_combo(df, divs, donchian_n=20, atr_period=14, atr_stop=2.0, atr_trail=3.0, vol_ma=20, exit_n=10):
     """组合策略: 60日线上方 + 突破20日高点 + 放量 + ATR止损/止盈"""
     prices = df["Close"].dropna()
@@ -498,6 +514,9 @@ ALL_STRATEGIES = [
     # --- 单均线对比 ---
     {"id": "ma10", "name": "MA10 突破", "desc": "价格突破10日均线买入，跌破卖出", "fn": lambda df, d: strategy_ma_single(df, d, 10), "color": "#b2bec3"},
     {"id": "ma_cross_7_14", "name": "MA Cross 7/14", "desc": "7日上穿14日均线买，下穿卖", "fn": lambda df, d: strategy_ma_crossover(df, d, 7, 14), "color": "#636e72"},
+    # --- 均线突破 (不对称买卖) ---
+    {"id": "ma144_56", "name": "突破MA144 / 跌破MA56", "desc": "收盘价突破144均线买入，跌破56均线卖出", "fn": lambda df, d: strategy_ma_breakout(df, d, 144, 56), "color": "#e17055"},
+    {"id": "ma233_144", "name": "突破MA233 / 跌破MA144", "desc": "收盘价突破233均线买入，跌破144均线卖出", "fn": lambda df, d: strategy_ma_breakout(df, d, 233, 144), "color": "#d63031"},
 ]
 
 # ============================================================
