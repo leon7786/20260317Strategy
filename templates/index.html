@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>📊 PFE 辉瑞 — 多策略回测</title>
+    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+            background: #0a0a1a;
+            color: #e0e0e0;
+            min-height: 100vh;
+        }
+        .header {
+            background: linear-gradient(135deg, #1a1a3e, #0d0d2b);
+            padding: 24px 40px;
+            border-bottom: 1px solid #2a2a5a;
+        }
+        .header h1 { font-size: 26px; color: #fff; margin-bottom: 6px; }
+        .header .subtitle { color: #888; font-size: 13px; }
+        .summary-cards {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 12px;
+            padding: 16px 40px;
+            background: #0a0a1a;
+        }
+        .card {
+            background: #12122a;
+            border: 1px solid #2a2a5a;
+            border-radius: 10px;
+            padding: 14px;
+            text-align: center;
+        }
+        .card .label { font-size: 10px; color: #888; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 4px; }
+        .card .value { font-size: 22px; font-weight: 700; }
+        .card .value.green { color: #00ff88; }
+        .card .value.red { color: #ff4444; }
+        .card .value.blue { color: #4488ff; }
+        .card .value.gold { color: #ffcc00; }
+        .card .detail { font-size: 10px; color: #666; margin-top: 4px; }
+        .charts-section { padding: 0 40px 16px; }
+        .chart-container {
+            background: #12122a;
+            border: 1px solid #2a2a5a;
+            border-radius: 12px;
+            padding: 16px;
+            margin-bottom: 16px;
+        }
+        .table-section { padding: 0 40px 40px; }
+        .table-section h2 { font-size: 18px; margin-bottom: 12px; color: #fff; }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            background: #12122a;
+            border: 1px solid #2a2a5a;
+        }
+        thead th {
+            background: #1a1a3e;
+            padding: 12px 14px;
+            text-align: left;
+            font-size: 11px;
+            color: #888;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            border-bottom: 1px solid #2a2a5a;
+            position: sticky;
+            top: 0;
+            z-index: 10;
+        }
+        tbody td {
+            padding: 10px 14px;
+            border-bottom: 1px solid #1a1a2e;
+            font-size: 13px;
+        }
+        tbody tr:hover { background: #1a1a3e; }
+        .positive { color: #00ff88; }
+        .negative { color: #ff4444; }
+        .strategy-color {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            border-radius: 3px;
+            margin-right: 8px;
+            vertical-align: middle;
+        }
+        .trade-list {
+            max-height: 300px;
+            overflow-y: auto;
+            font-size: 11px;
+            color: #888;
+        }
+        .trade-buy { color: #00ff88; }
+        .trade-sell { color: #ff4444; }
+        .footer {
+            text-align: center;
+            padding: 20px;
+            color: #444;
+            font-size: 12px;
+            border-top: 1px solid #1a1a2e;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>💊 PFE 辉瑞 — 多策略回测对比</h1>
+        <div class="subtitle">回测区间: 2012-05-18 → 2025-12-01 | 初始资金 $10,000 | 含分红再投资 (DRIP) | {{ strategy_count }} 种策略</div>
+    </div>
+
+    <div class="summary-cards">
+        <div class="card">
+            <div class="label">策略数量</div>
+            <div class="value blue">{{ strategy_count }}</div>
+        </div>
+        <div class="card">
+            <div class="label">🏆 最佳策略</div>
+            <div class="value green" style="font-size:16px">{{ best.name }}</div>
+            <div class="detail">${{ "{:,.0f}".format(best.stats.final_value) }} ({{ "{:+,.1f}".format(best.stats.total_return_pct) }}%)</div>
+        </div>
+        <div class="card">
+            <div class="label">📉 最差策略</div>
+            <div class="value red" style="font-size:16px">{{ worst.name }}</div>
+            <div class="detail">${{ "{:,.0f}".format(worst.stats.final_value) }} ({{ "{:+,.1f}".format(worst.stats.total_return_pct) }}%)</div>
+        </div>
+        <div class="card">
+            <div class="label">初始资金</div>
+            <div class="value gold">$10,000</div>
+        </div>
+    </div>
+
+    <div class="charts-section">
+        <div class="chart-container">
+            <div id="equityChart"></div>
+        </div>
+        <div class="chart-container">
+            <div id="drawdownChart"></div>
+        </div>
+        <div class="chart-container">
+            <div id="barChart"></div>
+        </div>
+    </div>
+
+    <div class="table-section">
+        <h2>📋 策略详情对比</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th>策略</th>
+                    <th>说明</th>
+                    <th>最终价值</th>
+                    <th>总回报率</th>
+                    <th>年化 CAGR</th>
+                    <th>最大回撤</th>
+                    <th>波动率</th>
+                    <th>Sharpe</th>
+                    <th>买入次数</th>
+                    <th>卖出次数</th>
+                    <th>完整交易</th>
+                    <th>胜率</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for r in results %}
+                <tr>
+                    <td>
+                        <span class="strategy-color" style="background:{{ r.color }}"></span>
+                        {{ r.name }}
+                    </td>
+                    <td style="color:#888; font-size:11px">{{ r.desc }}</td>
+                    <td class="{{ 'positive' if r.stats.final_value > 10000 else 'negative' }}">
+                        ${{ "{:,.0f}".format(r.stats.final_value) }}
+                    </td>
+                    <td class="{{ 'positive' if r.stats.total_return_pct > 0 else 'negative' }}">
+                        {{ "{:+,.1f}".format(r.stats.total_return_pct) }}%
+                    </td>
+                    <td class="{{ 'positive' if r.stats.cagr_pct > 0 else 'negative' }}">
+                        {{ "{:+,.1f}".format(r.stats.cagr_pct) }}%
+                    </td>
+                    <td class="negative">{{ "{:,.1f}".format(r.stats.max_drawdown_pct) }}%</td>
+                    <td>{{ "{:,.1f}".format(r.stats.volatility_pct) }}%</td>
+                    <td>{{ "{:.3f}".format(r.stats.sharpe_ratio) }}</td>
+                    <td>{{ r.stats.buy_count }}</td>
+                    <td>{{ r.stats.sell_count }}</td>
+                    <td>{{ r.stats.total_round_trips }}</td>
+                    <td>{{ "{:.1f}".format(r.stats.win_rate_pct) }}%</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    <div class="table-section">
+        <h2>📝 各策略交易记录</h2>
+        {% for r in results %}
+        <details style="margin-bottom:12px">
+            <summary style="cursor:pointer; color:#fff; padding:8px; background:#1a1a3e; border-radius:6px">
+                <span class="strategy-color" style="background:{{ r.color }}"></span>
+                {{ r.name }} — {{ r.trades|length }} 笔交易
+            </summary>
+            <div class="trade-list" style="padding:8px; background:#12122a; border:1px solid #2a2a5a; border-radius:0 0 6px 6px">
+                <table style="width:100%; font-size:11px">
+                    <tr><th>日期</th><th>操作</th><th>价格</th><th>股数</th></tr>
+                    {% for t in r.trades %}
+                    <tr>
+                        <td>{{ t.date.strftime('%Y-%m-%d') }}</td>
+                        <td class="{{ 'trade-buy' if t.action == 'BUY' else 'trade-sell' }}">{{ t.action }}</td>
+                        <td>${{ "{:.2f}".format(t.price) }}</td>
+                        <td>{{ "{:.2f}".format(t.shares) }}</td>
+                    </tr>
+                    {% endfor %}
+                </table>
+            </div>
+        </details>
+        {% endfor %}
+    </div>
+
+    <div class="footer">
+        🐾 OpenClaw Strategy Backtesting | PFE 辉瑞 | Data: Yahoo Finance | 仅供研究参考，不构成投资建议
+    </div>
+
+    <script>
+        var equityData = {{ equity_chart | safe }};
+        var drawdownData = {{ drawdown_chart | safe }};
+        var barData = {{ bar_chart | safe }};
+        
+        Plotly.newPlot('equityChart', equityData.data, equityData.layout, {responsive: true});
+        Plotly.newPlot('drawdownChart', drawdownData.data, drawdownData.layout, {responsive: true});
+        Plotly.newPlot('barChart', barData.data, barData.layout, {responsive: true});
+    </script>
+</body>
+</html>
